@@ -18,6 +18,7 @@ function MainMenu({ onStartGame }) {
         <h2>Тип гри</h2>
         <p className="menu-subtitle">
           Локально проти ботів або онлайн-бій 1v1 з другом.
+          Новий буст: ривок Shift, підбори й неонова арена.
         </p>
         <div className="menu-options menu-options--row">
           <button
@@ -48,7 +49,7 @@ function MainMenu({ onStartGame }) {
       {gameType === 'local' && (
         <div className="menu-card">
           <h2>Режим гри</h2>
-          <p className="menu-subtitle">Складність та кількість ботів.</p>
+          <p className="menu-subtitle">Складність, темп та кількість ботів.</p>
           <div className="menu-options">
             {MODES.map((mode) => (
               <button

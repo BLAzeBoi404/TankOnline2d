@@ -46,20 +46,59 @@ function drawTank(ctx, t) {
   ctx.restore()
 }
 
+function drawPickup(ctx, pickup) {
+  const colors = {
+    heal: '#22c55e',
+    rapid: '#0ea5e9',
+    shield: '#a855f7',
+  }
+  ctx.save()
+  ctx.translate(pickup.x, pickup.y)
+  ctx.rotate(performance.now() * 0.002)
+  ctx.fillStyle = colors[pickup.type] || '#e5e7eb'
+  ctx.globalAlpha = 0.9
+  ctx.beginPath()
+  ctx.moveTo(0, -pickup.radius)
+  ctx.lineTo(pickup.radius, pickup.radius)
+  ctx.lineTo(-pickup.radius, pickup.radius)
+  ctx.closePath()
+  ctx.fill()
+  ctx.restore()
+}
+
 function drawScene(ctx, world) {
   if (!world || !ctx) return
-  const { map, players, bots, bullets, enemyBullets, running } = world
+  const {
+    map,
+    players,
+    bots,
+    bullets,
+    enemyBullets,
+    running,
+    particles = [],
+    pickups = [],
+    cameraShake = 0,
+  } = world
   const { width, height, obstacles } = map
 
   ctx.clearRect(0, 0, width, height)
 
   const gradient = ctx.createLinearGradient(0, 0, width, height)
   gradient.addColorStop(0, '#020617')
-  gradient.addColorStop(1, '#000000')
+  gradient.addColorStop(0.5, '#0f172a')
+  gradient.addColorStop(1, '#020617')
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, width, height)
 
-  ctx.strokeStyle = 'rgba(30, 64, 175, 0.38)'
+  ctx.save()
+  if (cameraShake > 0) {
+    ctx.translate(
+      (Math.random() - 0.5) * cameraShake,
+      (Math.random() - 0.5) * cameraShake,
+    )
+  }
+
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.22)'
   ctx.lineWidth = 1
   const grid = 40
   for (let x = grid; x < width; x += grid) {
@@ -76,10 +115,17 @@ function drawScene(ctx, world) {
   }
 
   for (const ob of obstacles) {
-    ctx.fillStyle = '#02091f'
+    const obGradient = ctx.createLinearGradient(ob.x, ob.y, ob.x, ob.y + ob.height)
+    obGradient.addColorStop(0, 'rgba(59,130,246,0.16)')
+    obGradient.addColorStop(1, 'rgba(15,23,42,0.95)')
+    ctx.fillStyle = obGradient
     drawRoundedRect(ctx, ob.x + 2, ob.y + 2, ob.width - 4, ob.height - 4, 12)
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.9)'
+    ctx.strokeStyle = 'rgba(148,163,184,0.25)'
     ctx.strokeRect(ob.x + 1, ob.y + 1, ob.width - 2, ob.height - 2)
+  }
+
+  for (const pickup of pickups) {
+    drawPickup(ctx, pickup)
   }
 
   if (players) {
@@ -103,8 +149,8 @@ function drawScene(ctx, world) {
   }
 
   if (bullets) {
-    ctx.fillStyle = '#e5e7eb'
     for (const b of bullets) {
+      ctx.fillStyle = b.color || '#e5e7eb'
       ctx.beginPath()
       ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2)
       ctx.fill()
@@ -112,13 +158,26 @@ function drawScene(ctx, world) {
   }
 
   if (enemyBullets) {
-    ctx.fillStyle = '#fb7185'
     for (const b of enemyBullets) {
+      ctx.fillStyle = b.color || '#fb7185'
       ctx.beginPath()
       ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2)
       ctx.fill()
     }
   }
+
+  if (particles) {
+    for (const p of particles) {
+      ctx.fillStyle = p.color
+      ctx.globalAlpha = p.life
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.globalAlpha = 1
+    }
+  }
+
+  ctx.restore()
 
   if (!running) {
     ctx.fillStyle = 'rgba(15, 23, 42, 0.78)'
@@ -248,7 +307,14 @@ function LocalBotGame({ config, onExit }) {
   const canvasRef = useRef(null)
   const keysRef = useRef({})
   const animRef = useRef(null)
-  const [hud, setHud] = useState({ hp: 100, score: 0, time: 0 })
+  const [hud, setHud] = useState({
+    hp: 100,
+    maxHp: 100,
+    score: 0,
+    time: 0,
+    streak: 0,
+    buffs: {},
+  })
   const [status, setStatus] = useState('running')
   const [restartId, setRestartId] = useState(0)
 
@@ -292,13 +358,19 @@ function LocalBotGame({ config, onExit }) {
       height: 32,
       baseColor: '#22c55e',
       turretColor: '#4ade80',
-      speed: 190,
-      hp: 100,
+      speed: 210,
+      maxHp: 120,
+      hp: 110,
       dirX: 1,
       dirY: 0,
       fireCooldown: 0,
       fireDelay: 0.25,
-      bulletSpeed: 380,
+      bulletSpeed: 400,
+      dashCooldown: 0,
+      dashTimer: 0,
+      rapidFireDuration: 0,
+      shieldDuration: 0,
+      trailTimer: 0,
     }
 
     const bots = []
@@ -328,12 +400,25 @@ function LocalBotGame({ config, onExit }) {
       bots,
       bullets,
       enemyBullets,
+      particles: [],
+      pickups: [],
       running: true,
       elapsed: 0,
       score: 0,
+      streak: 0,
+      streakTimer: 0,
+      cameraShake: 0,
+      pickupTimer: 5.5,
     }
 
-    setHud({ hp: player.hp, score: 0, time: 0 })
+    setHud({
+      hp: player.hp,
+      maxHp: player.maxHp,
+      score: 0,
+      time: 0,
+      streak: 0,
+      buffs: {},
+    })
     setStatus('running')
 
     function rectsOverlap(a, b) {
@@ -345,6 +430,55 @@ function LocalBotGame({ config, onExit }) {
       )
     }
 
+    function addParticles(x, y, color, spread = 36, count = 8) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2
+        const speed = Math.random() * spread + 40
+        world.particles.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 2 + Math.random() * 2,
+          life: 1,
+          color,
+        })
+      }
+    }
+
+    function trySpawnPickup() {
+      if (world.pickups.length >= 3) return
+      const types = ['heal', 'rapid', 'shield']
+      for (let i = 0; i < 20; i++) {
+        const x = 80 + Math.random() * (map.width - 160)
+        const y = 80 + Math.random() * (map.height - 160)
+        const radius = 12
+        const candidate = { x, y, radius, type: types[Math.floor(Math.random() * types.length)] }
+        let blocked = false
+        for (const ob of map.obstacles) {
+          const rect = {
+            x: ob.x,
+            y: ob.y,
+            width: ob.width,
+            height: ob.height,
+          }
+          if (rectsOverlap({
+            x: candidate.x - radius,
+            y: candidate.y - radius,
+            width: radius * 2,
+            height: radius * 2,
+          }, rect)) {
+            blocked = true
+            break
+          }
+        }
+        if (!blocked) {
+          world.pickups.push(candidate)
+          break
+        }
+      }
+    }
+
     function update(dt) {
       if (!world.running) return
       const { map, bots, bullets, enemyBullets } = world
@@ -352,6 +486,27 @@ function LocalBotGame({ config, onExit }) {
       const keys = keysRef.current
 
       world.elapsed += dt
+      world.cameraShake = Math.max(0, world.cameraShake - dt * 22)
+      world.pickupTimer -= dt
+      if (world.pickupTimer <= 0) {
+        trySpawnPickup()
+        world.pickupTimer = 8 + Math.random() * 5
+      }
+
+      for (let i = world.particles.length - 1; i >= 0; i--) {
+        const p = world.particles[i]
+        p.life -= dt * 0.9
+        p.x += p.vx * dt
+        p.y += p.vy * dt
+        p.vx *= 0.98
+        p.vy *= 0.98
+        if (p.life <= 0) world.particles.splice(i, 1)
+      }
+
+      player.dashCooldown = Math.max(0, player.dashCooldown - dt)
+      player.dashTimer = Math.max(0, player.dashTimer - dt)
+      player.rapidFireDuration = Math.max(0, player.rapidFireDuration - dt)
+      player.shieldDuration = Math.max(0, player.shieldDuration - dt)
 
       let mx = 0
       let my = 0
@@ -360,6 +515,16 @@ function LocalBotGame({ config, onExit }) {
       if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1
       if (keys['KeyD'] || keys['ArrowRight']) mx += 1
 
+      const wantsDash = keys['ShiftLeft'] || keys['ShiftRight']
+
+      if (wantsDash && player.dashCooldown <= 0 && (mx !== 0 || my !== 0)) {
+        player.dashTimer = 0.22
+        player.dashCooldown = 2.6
+        addParticles(player.x + player.width / 2, player.y + player.height / 2, '#38bdf8', 80, 14)
+      }
+
+      const baseSpeed = player.speed * (player.dashTimer > 0 ? 2.8 : 1)
+
       if (mx !== 0 || my !== 0) {
         const len = Math.hypot(mx, my) || 1
         mx /= len
@@ -367,8 +532,8 @@ function LocalBotGame({ config, onExit }) {
         player.dirX = mx
         player.dirY = my
 
-        let nx = player.x + mx * player.speed * dt
-        let ny = player.y + my * player.speed * dt
+        let nx = player.x + mx * baseSpeed * dt
+        let ny = player.y + my * baseSpeed * dt
         const future = { x: nx, y: ny, width: player.width, height: player.height }
 
         if (future.x < 0) future.x = 0
@@ -392,6 +557,7 @@ function LocalBotGame({ config, onExit }) {
       }
 
       player.fireCooldown -= dt
+      const fireDelay = player.fireDelay * (player.rapidFireDuration > 0 ? 0.55 : 1)
       if ((keys['Space'] || keys['Enter']) && player.fireCooldown <= 0) {
         const len = Math.hypot(player.dirX, player.dirY) || 1
         const dx = len === 0 ? 1 : player.dirX / len
@@ -399,11 +565,19 @@ function LocalBotGame({ config, onExit }) {
         bullets.push({
           x: player.x + player.width / 2,
           y: player.y + player.height / 2,
-          radius: 4,
-          vx: dx * player.bulletSpeed,
-          vy: dy * player.bulletSpeed,
+          radius: player.rapidFireDuration > 0 ? 5 : 4,
+          vx: dx * player.bulletSpeed * (player.rapidFireDuration > 0 ? 1.15 : 1),
+          vy: dy * player.bulletSpeed * (player.rapidFireDuration > 0 ? 1.15 : 1),
+          color: player.rapidFireDuration > 0 ? '#7dd3fc' : '#e5e7eb',
         })
-        player.fireCooldown = player.fireDelay
+        addParticles(
+          player.x + player.width / 2,
+          player.y + player.height / 2,
+          player.rapidFireDuration > 0 ? '#bae6fd' : '#c7d2fe',
+          50,
+          6,
+        )
+        player.fireCooldown = fireDelay
       }
 
       for (const bot of bots) {
@@ -448,6 +622,7 @@ function LocalBotGame({ config, onExit }) {
             radius: 4,
             vx: (dx / dist) * mode.botBulletSpeed,
             vy: (dy / dist) * mode.botBulletSpeed,
+            color: '#fb7185',
           })
           bot.fireCooldown = mode.botFireDelay * (0.7 + Math.random() * 0.6)
         }
@@ -504,14 +679,19 @@ function LocalBotGame({ config, onExit }) {
             height: bot.height,
           }
           if (rectsOverlap(box, target)) {
-            bot.hp -= 35
+            bot.hp -= 36
+            world.cameraShake = Math.max(world.cameraShake, 9)
+            addParticles(box.x + box.width / 2, box.y + box.height / 2, '#f472b6', 70, 10)
             if (bot.hp <= 0) {
-              world.score += 1
+              world.score += 1 + Math.max(0, world.streak)
+              world.streak += 1
+              world.streakTimer = 3.6
               const spawn =
                 map.botSpawns[Math.floor(Math.random() * map.botSpawns.length)]
               bot.x = spawn.x
               bot.y = spawn.y
               bot.hp = bot.maxHp
+              addParticles(bot.x + bot.width / 2, bot.y + bot.height / 2, '#fb7185', 90, 14)
             }
             return true
           }
@@ -527,7 +707,10 @@ function LocalBotGame({ config, onExit }) {
           height: player.height,
         }
         if (rectsOverlap(box, target)) {
-          player.hp -= mode.damagePerHit
+          const dmg = mode.damagePerHit * (player.shieldDuration > 0 ? 0.55 : 1)
+          player.hp -= dmg
+          world.cameraShake = Math.max(world.cameraShake, player.shieldDuration > 0 ? 5 : 11)
+          addParticles(box.x + box.width / 2, box.y + box.height / 2, '#fda4af', 80, 12)
           if (player.hp <= 0) {
             player.hp = 0
             world.running = false
@@ -538,7 +721,40 @@ function LocalBotGame({ config, onExit }) {
         return false
       })
 
-      setHud({ hp: player.hp, score: world.score, time: world.elapsed })
+      world.streakTimer = Math.max(0, world.streakTimer - dt)
+      if (world.streakTimer === 0) {
+        world.streak = 0
+      }
+
+      for (let i = world.pickups.length - 1; i >= 0; i--) {
+        const p = world.pickups[i]
+        const dx = player.x + player.width / 2 - p.x
+        const dy = player.y + player.height / 2 - p.y
+        if (Math.hypot(dx, dy) < p.radius + 16) {
+          if (p.type === 'heal') {
+            player.hp = Math.min(player.maxHp, player.hp + 35)
+          } else if (p.type === 'rapid') {
+            player.rapidFireDuration = Math.max(player.rapidFireDuration, 7)
+          } else if (p.type === 'shield') {
+            player.shieldDuration = Math.max(player.shieldDuration, 6)
+          }
+          addParticles(p.x, p.y, '#c084fc', 100, 16)
+          world.pickups.splice(i, 1)
+        }
+      }
+
+      setHud({
+        hp: player.hp,
+        maxHp: player.maxHp,
+        score: world.score,
+        time: world.elapsed,
+        streak: world.streak,
+        buffs: {
+          shield: player.shieldDuration,
+          rapid: player.rapidFireDuration,
+          dash: player.dashCooldown,
+        },
+      })
     }
 
     function frame() {
@@ -559,7 +775,8 @@ function LocalBotGame({ config, onExit }) {
     }
   }, [config, restartId])
 
-  const hpRatio = Math.max(0, Math.min(1, hud.hp / 100))
+  const hpMax = hud.maxHp || 100
+  const hpRatio = Math.max(0, Math.min(1, hud.hp / hpMax))
 
   return (
     <div className="game-screen">
@@ -586,6 +803,26 @@ function LocalBotGame({ config, onExit }) {
                 style={{ width: hpRatio * 100 + '%' }}
               />
             </div>
+            <span className="hud-value small">{hud.hp.toFixed(0)} / {hpMax}</span>
+          </div>
+          <div className="hud-pill">
+            <span className="hud-label">Серія</span>
+            <span className="hud-value">x{hud.streak + 1}</span>
+          </div>
+          <div className="hud-pill">
+            <span className="hud-label">Бонуси</span>
+            <span className="hud-value">
+              Щит: {Math.max(0, hud.buffs?.shield || 0).toFixed(1)}с ·
+              Вогонь: {Math.max(0, hud.buffs?.rapid || 0).toFixed(1)}с
+            </span>
+          </div>
+          <div className="hud-pill">
+            <span className="hud-label">Ривок</span>
+            <span className="hud-value">
+              {hud.buffs?.dash > 0
+                ? `Кд: ${hud.buffs.dash.toFixed(1)}с`
+                : 'Готовий (Shift)'}
+            </span>
           </div>
           <div className="hud-pill">
             <span className="hud-label">Очки</span>
@@ -601,7 +838,8 @@ function LocalBotGame({ config, onExit }) {
         </div>
 
         <div className="controls-hint">
-          WASD / стрілки — рух, Space / Enter — стріляти, Esc — вийти в меню
+          WASD / стрілки — рух, Space / Enter — стріляти, Shift — ривок, збирай неонові підбори.
+          Esc — вийти в меню
         </div>
 
         {status === 'dead' && (
