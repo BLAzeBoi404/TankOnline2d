@@ -36,6 +36,18 @@ export const MODES = [
     botHp: 90,
     damagePerHit: 22,
   },
+  {
+    id: 'mayhem',
+    label: 'Мейгем',
+    description: 'Макс-хаос у стилі Gun Mayhem: швидкі боти з вибуховим темпом.',
+    botCount: 3,
+    botSpeed: 170,
+    botBulletSpeed: 340,
+    botFireDelay: 0.72,
+    botFireRange: 620,
+    botHp: 110,
+    damagePerHit: 26,
+  },
 ]
 
 // Карти: статична арена і процедурний лабіринт
@@ -59,6 +71,29 @@ export const MAPS = [
       { x: 1040, y: 140 },
       { x: 1040, y: 420 },
       { x: 900, y: 80 },
+    ],
+  },
+  {
+    id: 'crossfire',
+    label: 'Неонова платформа',
+    kind: 'static',
+    width: 1280,
+    height: 640,
+    obstacles: [
+      { x: 280, y: 120, width: 160, height: 30 },
+      { x: 840, y: 120, width: 160, height: 30 },
+      { x: 520, y: 230, width: 240, height: 36 },
+      { x: 200, y: 310, width: 180, height: 44 },
+      { x: 900, y: 310, width: 180, height: 44 },
+      { x: 520, y: 400, width: 240, height: 38 },
+      { x: 120, y: 470, width: 220, height: 46 },
+      { x: 940, y: 470, width: 220, height: 46 },
+    ],
+    playerSpawn: { x: 120, y: 340 },
+    botSpawns: [
+      { x: 1060, y: 130 },
+      { x: 1040, y: 460 },
+      { x: 600, y: 140 },
     ],
   },
   {

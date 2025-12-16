@@ -18,7 +18,7 @@ function App() {
 
   return (
     <div className="app-root">
-      <h1 className="game-title">REACT 2D SHOOTER</h1>
+      <h1 className="game-title">NEON MAYHEM ARENA</h1>
       {screen === 'menu' && <MainMenu onStartGame={handleStartGame} />}
       {screen === 'game' && (
         <GameScreen config={gameConfig} onExit={handleBackToMenu} />
